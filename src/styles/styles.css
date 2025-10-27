@@ -1,0 +1,19 @@
+.img_container {
+  position: relative;
+  width: 60vw;
+  margin: 0 auto;
+}
+
+.img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.target_box {
+  position: absolute;
+  border: 1px solid red;
+  background-color: transparent;
+  z-index: 10;
+  pointer-events: none;
+}
