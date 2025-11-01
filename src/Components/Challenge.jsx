@@ -1,5 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "../styles/styles.css";
+
+// fetch waldo data from BE
+const useData = (url) => {
+  const [data, setData] = useState({});
+  useEffect(() => {
+    const fetchData = async () => {
+      console.log("Fetching data from BE");
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.error(`HTTP error status ${res.status}`);
+        }
+        const data = await res.json();
+        setData(data.data);
+      } catch (error) {
+        console.error("Fetching data failed ", error);
+      }
+    };
+    fetchData(url);
+  }, [url]);
+  return data;
+};
 
 const Challenge = () => {
   const [clickCoords, setClickCoords] = useState({ x: 0, y: 0 });
@@ -9,13 +31,21 @@ const Challenge = () => {
     top: 0,
     left: 0,
   });
+
   const targetBoxSize = 50;
+  const URL = "http://localhost:3000/challenge/1";
+  const data = useData(URL);
   // data from BE
-  const imgSrc =
-    "https://i.pinimg.com/736x/86/b9/b1/86b9b1e83140b935031a7c7b0ebf0170.jpg";
+  const imgSrc = data.url;
   // waldo coordinate 1078 880 - 1120 955
-  const waldoCoords = { top: 740, left: 713, right: 760, bottom: 820 };
+  const waldoCoords = {
+    top: data.waldo_top,
+    left: data.waldo_left,
+    right: data.waldo_right,
+    bottom: data.waldo_bottom,
+  };
   // validate coordinate of target
+
   const validateTargetCoords = (targetCoords) => {
     if (!targetCoords.x || !targetCoords.y) {
       console.error("Target coordinate is not valid");
