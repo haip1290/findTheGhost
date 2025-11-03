@@ -49,6 +49,8 @@ const isTargetWaldo = (targetCoords, waldoCoords) => {
 // fetch waldo data from BE
 const useData = (url) => {
   const [data, setData] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   useEffect(() => {
     const fetchData = async () => {
       console.log("Fetching data from BE");
@@ -56,21 +58,27 @@ const useData = (url) => {
         const res = await fetch(url);
         if (!res.ok) {
           console.error(`HTTP error status ${res.status}`);
+          setError("Internal server error");
+          setLoading(false);
+          return;
         }
         const data = await res.json();
         setData(data.data);
       } catch (error) {
         console.error("Fetching data failed ", error);
+        setError(error.message || "Internal server error");
+      } finally {
+        setLoading(false);
       }
     };
     fetchData();
   }, [url]);
-  return data;
+  return { data, loading, error };
 };
 
 const Challenge = () => {
   const [clickCoords, setClickCoords] = useState({ x: 0, y: 0 });
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState("Let's find Waldo");
   const [targetBoxStyle, setTargetBoxStyle] = useState({
     display: "none",
     top: 0,
@@ -78,10 +86,12 @@ const Challenge = () => {
   });
 
   const targetBoxSize = 50;
-  const URL = "http://localhost:3000/challenge/1";
-  const data = useData(URL);
+  const URL = "http://localhost:3000/challenge/5";
+  const { data, loading, error } = useData(URL);
 
-  // data from BE
+  const startTime = new Date();
+  console.log("Start time ", startTime);
+  // process data from BE
   const imgSrc = data.url;
   // waldo coordinate 1078 880 - 1120 955
   const waldoCoords = useMemo(
@@ -100,9 +110,13 @@ const Challenge = () => {
     const xCoord = e.clientX;
     const yCoord = e.clientY;
     const imageRect = e.currentTarget.getBoundingClientRect();
+    console.log("image data ", imageRect);
     const relativeX = xCoord - imageRect.left;
     const relativeY = yCoord - imageRect.top;
-    const targetCoords = { x: relativeX, y: relativeY };
+    const targetCoords = {
+      x: (relativeX * 1000) / imageRect.width,
+      y: (relativeY * 1000) / imageRect.height,
+    };
 
     // handle target box
     setTargetBoxStyle({
@@ -113,16 +127,22 @@ const Challenge = () => {
       height: `${targetBoxSize}px`,
     });
     setClickCoords(targetCoords);
+    console.log("Waldo Coords ", waldoCoords);
     // display message based on user's click
     if (isTargetWaldo(targetCoords, waldoCoords)) {
       setMessage("You found Waldo");
+      const endTime = new Date();
+      console.log("End time ", endTime);
+      console.log("legnth ", startTime - endTime);
     } else {
       setMessage("That's not Waldo. Try again.");
     }
   };
-
-  if (!data || !data.url) {
+  if (loading) {
     return <div>Loading Challenge...</div>;
+  }
+  if (error) {
+    return <div>Error loading challenge: {error}</div>;
   }
 
   return (
