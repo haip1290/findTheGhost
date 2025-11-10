@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import "../styles/styles.css";
 
 const validateTargetCoords = (targetCoords) => {
@@ -46,34 +46,135 @@ const isTargetWaldo = (targetCoords, waldoCoords) => {
   return true;
 };
 
+const getClickCoords = (event) => {
+  // find click coordinates based relative to image box
+  const xCoord = event.clientX;
+  const yCoord = event.clientY;
+  const imageRect = event.currentTarget.getBoundingClientRect();
+  const relativeX = xCoord - imageRect.left;
+  const relativeY = yCoord - imageRect.top;
+
+  // divided by image width and height to handle different resolution
+  const targetCoords = {
+    x: (relativeX * 1000) / imageRect.width,
+    y: (relativeY * 1000) / imageRect.height,
+  };
+  return { relativeX, relativeY, targetCoords };
+};
+
+// function to draw box around user's click position
+const drawBox = (x, y, boxSize, setTargetBoxStyle) => {
+  setTargetBoxStyle({
+    display: "block",
+    top: y - boxSize / 2,
+    left: x - boxSize / 2,
+    width: `${boxSize}px`,
+    height: `${boxSize}px`,
+  });
+};
+
 // fetch waldo data from BE
-const useData = (url) => {
+const useFetchWaldoData = (url) => {
   const [data, setData] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [imgLoading, setImgLoading] = useState(true);
+  const [fetchImgError, setFetchImgError] = useState(null);
   useEffect(() => {
     const fetchData = async () => {
       console.log("Fetching data from BE");
       try {
         const res = await fetch(url);
         if (!res.ok) {
-          console.error(`HTTP error status ${res.status}`);
-          setError("Internal server error");
-          setLoading(false);
-          return;
+          const errorData = await res.json().catch(() => {});
+          const errorMsg =
+            errorData.message || `HTTP error status ${res.status}`;
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         setData(data.data);
       } catch (error) {
         console.error("Fetching data failed ", error);
-        setError(error.message || "Internal server error");
+        setFetchImgError(error.message || "Internal server error");
       } finally {
-        setLoading(false);
+        setImgLoading(false);
       }
     };
     fetchData();
   }, [url]);
-  return { data, loading, error };
+  return [data, imgLoading, fetchImgError];
+};
+
+const useCreateUserApi = (url, imgLoading) => {
+  const [user, setUser] = useState(null);
+  const [createUserError, setCreateUserError] = useState("");
+  useEffect(() => {
+    const createUser = async () => {
+      console.log("Calling BE to create user");
+      try {
+        const res = await fetch(url, { method: "POST" });
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => {});
+          const errorMsg =
+            errorData.message || `HTTP error status ${res.status}`;
+          throw new Error(errorMsg);
+        }
+        const data = await res.json();
+        console.log("User ", data.data.user);
+        setUser(data.data.user);
+      } catch (error) {
+        console.error("Create user failed ", error);
+        setCreateUserError(error.message || "Internal server error");
+      }
+    };
+    // only create user after image finished loading and there is no user
+    if (!imgLoading && !user) {
+      createUser();
+    }
+  }, [imgLoading, url]);
+  return [user, createUserError];
+};
+
+const useUpdateEndTime = (url) => {
+  const [updateEndTimeLoading, setUpdateEndTimeLoading] = useState(false);
+  const [updateEndTimeError, setUpdateEndTimeError] = useState(null);
+  const [userTime, setUserTime] = useState(null);
+  const [isFinished, setIsFinished] = useState(false);
+  // function to update user endtime
+  const updateEndTime = useCallback(async () => {
+    if (isFinished) return;
+    try {
+      console.log("Calling BE to update user end time");
+      const res = await fetch(url, { method: "PUT" });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => {});
+        const errorMsg = errorData || `HTTP error status ${res.status}`;
+        throw new Error(errorMsg);
+      }
+      const data = await res.json();
+      const user = data.data.user;
+
+      // calculate time taken
+      const startTime = new Date(user.startTime);
+      const endTime = new Date(user.endTime);
+      const timeDiff = startTime.getTime() - endTime.getTime();
+      const calculatedUserTime = (timeDiff / 1000).toFixed(2);
+
+      setUserTime(calculatedUserTime);
+      setIsFinished(true);
+    } catch (error) {
+      console.error("Error updating user end time ", error);
+      setUpdateEndTimeError(error.message || "Internal Server Error");
+    } finally {
+      setUpdateEndTimeLoading(false);
+    }
+  }, [url, isFinished]);
+
+  return [
+    updateEndTimeLoading,
+    updateEndTimeError,
+    userTime,
+    isFinished,
+    updateEndTime,
+  ];
 };
 
 const Challenge = () => {
@@ -84,13 +185,37 @@ const Challenge = () => {
     top: 0,
     left: 0,
   });
-
+  const [username, setUsername] = useState("");
   const targetBoxSize = 50;
-  const URL = "http://localhost:3000/challenge/5";
-  const { data, loading, error } = useData(URL);
+  const getWaldoDataURL = "http://localhost:3000/challenge/first";
+  const createUserURL = "http://localhost:3000/user";
 
-  const startTime = new Date();
-  console.log("Start time ", startTime);
+  // get data from BE
+  const [data, imgLoading, fetchImgError] = useFetchWaldoData(getWaldoDataURL);
+  const [user, createUserError] = useCreateUserApi(createUserURL, imgLoading);
+  const userId = user?.id;
+  const userStartTime = user?.startTime;
+
+  // format time to cleaner string
+  const formattedStartTime = useMemo(() => {
+    if (!userStartTime) return "N/A";
+    return new Date(userStartTime).toLocaleDateString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }, [userStartTime]);
+
+  const updateUserURL = userId ? `http://localhost:3000/user/${userId}` : "";
+
+  const [
+    updateEndTimeLoading,
+    updateEndTimeError,
+    userTime,
+    isFinished,
+    updateEndTime,
+  ] = useUpdateEndTime(updateUserURL);
+
   // process data from BE
   const imgSrc = data.url;
   // waldo coordinate 1078 880 - 1120 955
@@ -104,45 +229,29 @@ const Challenge = () => {
     [data]
   );
 
-  // function to find user click coordinates
+  // function to handle user click
   const handleUserClick = (e) => {
-    // find click coordinates based relative to image box
-    const xCoord = e.clientX;
-    const yCoord = e.clientY;
-    const imageRect = e.currentTarget.getBoundingClientRect();
-    console.log("image data ", imageRect);
-    const relativeX = xCoord - imageRect.left;
-    const relativeY = yCoord - imageRect.top;
-    const targetCoords = {
-      x: (relativeX * 1000) / imageRect.width,
-      y: (relativeY * 1000) / imageRect.height,
-    };
-
+    // get click coordinate
+    const { relativeX, relativeY, targetCoords } = getClickCoords(e);
     // handle target box
-    setTargetBoxStyle({
-      display: "block",
-      top: relativeY - targetBoxSize / 2,
-      left: relativeX - targetBoxSize / 2,
-      width: `${targetBoxSize}px`,
-      height: `${targetBoxSize}px`,
-    });
+    drawBox(relativeX, relativeY, targetBoxSize, setTargetBoxStyle);
     setClickCoords(targetCoords);
-    console.log("Waldo Coords ", waldoCoords);
     // display message based on user's click
     if (isTargetWaldo(targetCoords, waldoCoords)) {
       setMessage("You found Waldo");
-      const endTime = new Date();
-      console.log("End time ", endTime);
-      console.log("legnth ", startTime - endTime);
+      updateEndTime(updateUserURL);
     } else {
       setMessage("That's not Waldo. Try again.");
     }
   };
-  if (loading) {
+
+  const handleUpdateUsername = () => {};
+
+  if (imgLoading) {
     return <div>Loading Challenge...</div>;
   }
-  if (error) {
-    return <div>Error loading challenge: {error}</div>;
+  if (fetchImgError) {
+    return <div>Error loading challenge: {fetchImgError}</div>;
   }
 
   return (
@@ -151,6 +260,7 @@ const Challenge = () => {
       <p>
         User clicked: {clickCoords.x} {clickCoords.y}
       </p>
+      <p>Start Time : {formattedStartTime}</p>
       <p>{message}</p>
       <div className="img_container">
         <img
@@ -161,6 +271,30 @@ const Challenge = () => {
         />
         <div className="target_box" style={targetBoxStyle}></div>
       </div>
+
+      {updateEndTimeLoading && <div>...Saving your time</div>}
+      {updateEndTimeError && <div>Error saving score</div>}
+      {createUserError && <div>Sorry, this feature is not available atm</div>}
+
+      {isFinished && userTime && <div>Your time: {userTime} second!</div>}
+      {isFinished && (
+        <div>
+          <p>Let's get your name on the leader board</p>
+          <form onClick={handleUpdateUsername}>
+            <label htmlFor="username">Username</label>
+            <input
+              type="text"
+              name="username"
+              id="username"
+              required
+              onChange={(e) => {
+                setUsername(e.target.value);
+              }}
+            />
+            <button type="submit">Submit Score</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
